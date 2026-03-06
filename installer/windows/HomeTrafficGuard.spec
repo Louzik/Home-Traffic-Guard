@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 project_root = Path.cwd()
-entry_script = project_root / "src" / "home_traffic_guard" / "__main__.py"
+entry_script = project_root / "src" / "home_traffic_guard" / "main.py"
 
 block_cipher = None
 
