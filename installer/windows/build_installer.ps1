@@ -8,6 +8,20 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
 Set-Location $ProjectRoot
 
+function Invoke-External {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter(Mandatory = $false)]
+        [string[]]$Arguments = @()
+    )
+
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Команда завершилась с кодом $LASTEXITCODE: $FilePath $($Arguments -join ' ')"
+    }
+}
+
 $BuildVenv = ".venv-build-win"
 $PythonExe = Join-Path $ProjectRoot "$BuildVenv\Scripts\python.exe"
 
@@ -21,11 +35,17 @@ if (-not (Test-Path $PythonExe)) {
 }
 
 Write-Host "[INFO] Устанавливаем зависимости сборки..."
-& $PythonExe -m pip install --upgrade pip setuptools wheel
-& $PythonExe -m pip install -e . pyinstaller
+Invoke-External -FilePath $PythonExe -Arguments @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel")
+Invoke-External -FilePath $PythonExe -Arguments @("-m", "pip", "install", "-e", ".", "pyinstaller")
 
 Write-Host "[INFO] Собираем приложение через PyInstaller..."
-& $PythonExe -m PyInstaller installer\windows\HomeTrafficGuard.spec --noconfirm --clean
+Invoke-External -FilePath $PythonExe -Arguments @(
+    "-m",
+    "PyInstaller",
+    "installer\windows\HomeTrafficGuard.spec",
+    "--noconfirm",
+    "--clean"
+)
 
 $IsccCandidates = @(
     "${env:ChocolateyInstall}\bin\ISCC.exe",
@@ -46,8 +66,12 @@ if (-not $IsccExe) {
 }
 
 Write-Host "[INFO] Собираем setup.exe через Inno Setup..."
-& $IsccExe "installer\windows\HomeTrafficGuard.iss"
+Invoke-External -FilePath $IsccExe -Arguments @("installer\windows\HomeTrafficGuard.iss")
 
 Write-Host ""
 Write-Host "[OK] Готово."
+$InstallerPath = Join-Path $ProjectRoot "installer\windows\output\HomeTrafficGuardSetup.exe"
+if (-not (Test-Path $InstallerPath)) {
+    throw "Установщик не найден: $InstallerPath"
+}
 Write-Host "[OK] Установщик: installer\windows\output\HomeTrafficGuardSetup.exe"

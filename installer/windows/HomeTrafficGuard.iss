@@ -13,7 +13,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\Home Traffic Guard
 DefaultGroupName=Home Traffic Guard
 DisableProgramGroupPage=yes
-OutputDir=installer\windows\output
+OutputDir=output
 OutputBaseFilename=HomeTrafficGuardSetup
 Compression=lzma
 SolidCompression=yes
@@ -29,7 +29,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "dist\HomeTrafficGuard\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\dist\HomeTrafficGuard\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\Home Traffic Guard"; Filename: "{app}\{#MyAppExeName}"
