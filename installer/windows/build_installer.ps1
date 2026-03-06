@@ -1,0 +1,45 @@
+$ErrorActionPreference = "Stop"
+
+# Скрипт сборки Windows-установщика:
+# 1) PyInstaller -> dist\HomeTrafficGuard
+# 2) Inno Setup -> installer\windows\output\HomeTrafficGuardSetup.exe
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
+Set-Location $ProjectRoot
+
+$BuildVenv = ".venv-build-win"
+$PythonExe = Join-Path $ProjectRoot "$BuildVenv\Scripts\python.exe"
+
+if (-not (Test-Path $PythonExe)) {
+    Write-Host "[INFO] Создаем окружение сборки $BuildVenv..."
+    try {
+        py -3.11 -m venv $BuildVenv
+    } catch {
+        python -m venv $BuildVenv
+    }
+}
+
+Write-Host "[INFO] Устанавливаем зависимости сборки..."
+& $PythonExe -m pip install --upgrade pip setuptools wheel
+& $PythonExe -m pip install -e . pyinstaller
+
+Write-Host "[INFO] Собираем приложение через PyInstaller..."
+& $PythonExe -m PyInstaller installer\windows\HomeTrafficGuard.spec --noconfirm --clean
+
+$IsccCandidates = @(
+    "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+)
+
+$IsccExe = $IsccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $IsccExe) {
+    throw "Не найден ISCC.exe (Inno Setup 6). Установите Inno Setup и повторите команду."
+}
+
+Write-Host "[INFO] Собираем setup.exe через Inno Setup..."
+& $IsccExe "installer\windows\HomeTrafficGuard.iss"
+
+Write-Host ""
+Write-Host "[OK] Готово."
+Write-Host "[OK] Установщик: installer\windows\output\HomeTrafficGuardSetup.exe"
