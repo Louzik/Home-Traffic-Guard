@@ -51,8 +51,9 @@ if errorlevel 1 (
 set "ISCC_EXE="
 if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+if exist "%ChocolateyInstall%\bin\ISCC.exe" set "ISCC_EXE=%ChocolateyInstall%\bin\ISCC.exe"
 
-if "%ISCC_EXE%"=="" (
+if not defined ISCC_EXE (
     echo [ERROR] Не найден ISCC.exe (Inno Setup 6).
     echo [INFO] Установите Inno Setup и повторите команду.
     exit /b 1
