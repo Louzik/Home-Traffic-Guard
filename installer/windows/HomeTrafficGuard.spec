@@ -5,7 +5,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 project_root = Path.cwd()
-entry_script = project_root / "src" / "home_traffic_guard" / "main.py"
+entry_script = project_root / "src" / "home_traffic_guard" / "launcher.py"
 
 block_cipher = None
 

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Callable
 
 from PySide6.QtWidgets import QApplication
 
 from home_traffic_guard.analytics.baseline import BaselineAnalyzer
 from home_traffic_guard.collectors.base import TrafficCollector
 from home_traffic_guard.collectors.dummy_collector import DummyTrafficCollector
-from home_traffic_guard.collectors.packet_sniffer import PacketSnifferCollector
 from home_traffic_guard.config import AppConfig
 from home_traffic_guard.db.connection import Database
 from home_traffic_guard.db.repositories import AlertRepository, DeviceRepository, TrafficSampleRepository
@@ -64,7 +64,8 @@ class HomeTrafficGuardApp:
         logger = logging.getLogger(self.__class__.__name__)
 
         try:
-            collector = PacketSnifferCollector(
+            packet_sniffer_factory = self._load_packet_sniffer_factory()
+            collector = packet_sniffer_factory(
                 window_seconds=max(self._config.monitoring_interval_ms / 1000.0, 1.0),
                 auto_start=True,
             )
@@ -82,6 +83,13 @@ class HomeTrafficGuardApp:
         except Exception:
             logger.exception("Ошибка инициализации PacketSnifferCollector, используем DummyTrafficCollector")
             return DummyTrafficCollector()
+
+    @staticmethod
+    def _load_packet_sniffer_factory() -> Callable[..., TrafficCollector]:
+        """Лениво импортировать PacketSnifferCollector, чтобы сбой scapy не ломал запуск приложения."""
+        from home_traffic_guard.collectors.packet_sniffer import PacketSnifferCollector
+
+        return PacketSnifferCollector
 
     def _seed_devices(self, device_repository: DeviceRepository) -> None:
         """Добавить устройства по умолчанию при первом запуске, если таблица пуста."""
