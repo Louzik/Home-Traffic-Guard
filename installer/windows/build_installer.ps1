@@ -7,6 +7,9 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
 Set-Location $ProjectRoot
+$VCRedistUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+$PrereqsDir = Join-Path $ProjectRoot "installer\windows\prereqs"
+$VCRedistPath = Join-Path $PrereqsDir "vc_redist.x64.exe"
 
 function Invoke-External {
     param (
@@ -46,6 +49,17 @@ Invoke-External -FilePath $PythonExe -Arguments @(
     "--noconfirm",
     "--clean"
 )
+
+Write-Host "[INFO] Подготавливаем prerequisites для установщика..."
+if (-not (Test-Path $PrereqsDir)) {
+    New-Item -ItemType Directory -Path $PrereqsDir -Force | Out-Null
+}
+
+Write-Host "[INFO] Загружаем Microsoft Visual C++ Redistributable (x64)..."
+Invoke-WebRequest -Uri $VCRedistUrl -OutFile $VCRedistPath
+if (-not (Test-Path $VCRedistPath)) {
+    throw "Не удалось скачать vc_redist.x64.exe: $VCRedistPath"
+}
 
 $IsccCandidates = @(
     "${env:ChocolateyInstall}\bin\ISCC.exe",

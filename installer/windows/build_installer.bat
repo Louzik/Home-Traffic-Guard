@@ -48,6 +48,26 @@ if errorlevel 1 (
     exit /b 1
 )
 
+set "PREREQS_DIR=installer\windows\prereqs"
+set "VCREDIST_PATH=%PREREQS_DIR%\vc_redist.x64.exe"
+set "VCREDIST_URL=https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+if not exist "%PREREQS_DIR%" (
+    mkdir "%PREREQS_DIR%"
+)
+
+echo [INFO] Загружаем Microsoft Visual C++ Redistributable (x64)...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%VCREDIST_URL%' -OutFile '%PROJECT_ROOT%\%VCREDIST_PATH%'"
+if errorlevel 1 (
+    echo [ERROR] Не удалось скачать vc_redist.x64.exe.
+    exit /b 1
+)
+
+if not exist "%VCREDIST_PATH%" (
+    echo [ERROR] Файл vc_redist.x64.exe не найден после загрузки.
+    exit /b 1
+)
+
 set "ISCC_EXE="
 if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%ProgramFiles%\Inno Setup 6\ISCC.exe"

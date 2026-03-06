@@ -54,3 +54,5 @@ installer/windows/README.md
 ```
 
 После выполнения workflow готовый `HomeTrafficGuardSetup.exe` доступен в артефактах run.
+
+Текущий setup.exe также включает автоматическую установку `Microsoft Visual C++ Redistributable 2015-2022 (x64)`.
