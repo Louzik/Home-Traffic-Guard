@@ -28,11 +28,19 @@ Write-Host "[INFO] Собираем приложение через PyInstaller.
 & $PythonExe -m PyInstaller installer\windows\HomeTrafficGuard.spec --noconfirm --clean
 
 $IsccCandidates = @(
-    "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
-    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+    "${env:ChocolateyInstall}\bin\ISCC.exe",
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
 )
 
 $IsccExe = $IsccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $IsccExe) {
+    $IsccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($IsccCommand) {
+        $IsccExe = $IsccCommand.Source
+    }
+}
+
 if (-not $IsccExe) {
     throw "Не найден ISCC.exe (Inno Setup 6). Установите Inno Setup и повторите команду."
 }

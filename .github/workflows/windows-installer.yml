@@ -32,9 +32,9 @@ jobs:
           choco install innosetup --no-progress -y
 
       - name: Build installer
-        shell: cmd
+        shell: pwsh
         run: |
-          installer\windows\build_installer.bat
+          & .\installer\windows\build_installer.ps1
 
       - name: Upload setup artifact
         uses: actions/upload-artifact@v4
