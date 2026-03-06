@@ -18,7 +18,7 @@ function Invoke-External {
 
     & $FilePath @Arguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Команда завершилась с кодом $LASTEXITCODE: $FilePath $($Arguments -join ' ')"
+        throw "Команда завершилась с кодом ${LASTEXITCODE}: $FilePath $($Arguments -join ' ')"
     }
 }
 
