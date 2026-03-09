@@ -442,6 +442,7 @@ class AlertsPage(QWidget):
             button.setAutoDefault(False)
             button.setDefault(False)
             button.setProperty("severity", severity_value if severity_value is not None else "")
+            button.setProperty("filterRole", severity_value if severity_value is not None else "all")
             button.setFixedHeight(36)
             button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             text_width = button.fontMetrics().horizontalAdvance(text)
@@ -1150,15 +1151,51 @@ class MainWindow(QMainWindow):
                 font-size: 12px;
                 font-weight: 700;
             }
-            QPushButton#AlertsFilterButton:hover:!checked {
+            QPushButton#AlertsFilterButton[filterRole="all"]:hover:!checked {
                 background-color: rgba(61, 94, 117, 0.10);
             }
-            QPushButton#AlertsFilterButton:pressed:!checked {
+            QPushButton#AlertsFilterButton[filterRole="all"]:pressed:!checked {
                 background-color: rgba(61, 94, 117, 0.15);
             }
-            QPushButton#AlertsFilterButton:checked {
+            QPushButton#AlertsFilterButton[filterRole="all"]:checked {
                 background-color: #2f5d78;
                 color: #eef6ff;
+            }
+            QPushButton#AlertsFilterButton[filterRole="high"]:hover:!checked {
+                background-color: rgba(191, 59, 70, 0.14);
+                color: #8e2431;
+            }
+            QPushButton#AlertsFilterButton[filterRole="high"]:pressed:!checked {
+                background-color: rgba(191, 59, 70, 0.22);
+                color: #7e1d29;
+            }
+            QPushButton#AlertsFilterButton[filterRole="high"]:checked {
+                background-color: #ba3844;
+                color: #fff4f4;
+            }
+            QPushButton#AlertsFilterButton[filterRole="medium"]:hover:!checked {
+                background-color: rgba(221, 168, 59, 0.18);
+                color: #705218;
+            }
+            QPushButton#AlertsFilterButton[filterRole="medium"]:pressed:!checked {
+                background-color: rgba(221, 168, 59, 0.27);
+                color: #624611;
+            }
+            QPushButton#AlertsFilterButton[filterRole="medium"]:checked {
+                background-color: #dca73b;
+                color: #3f2e06;
+            }
+            QPushButton#AlertsFilterButton[filterRole="low"]:hover:!checked {
+                background-color: rgba(69, 154, 91, 0.16);
+                color: #2f6e42;
+            }
+            QPushButton#AlertsFilterButton[filterRole="low"]:pressed:!checked {
+                background-color: rgba(69, 154, 91, 0.24);
+                color: #265938;
+            }
+            QPushButton#AlertsFilterButton[filterRole="low"]:checked {
+                background-color: #459a5b;
+                color: #f1fff4;
             }
             QCheckBox#AlertsUnackOnly {
                 color: #25495d;
@@ -1349,6 +1386,9 @@ class MainWindow(QMainWindow):
         self._overview_timer = QTimer(self)
         self._overview_timer.setInterval(self._monitoring_service.get_interval_ms())
         self._overview_timer.timeout.connect(self._refresh_overview_metrics)
+        self._status_timer = QTimer(self)
+        self._status_timer.setInterval(1000)
+        self._status_timer.timeout.connect(self._update_status_indicator)
 
     def showEvent(self, event) -> None:  # noqa: N802
         """Запустить мониторинг при отображении окна."""
@@ -1357,6 +1397,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         """Остановить мониторинг перед закрытием окна."""
+        self._status_timer.stop()
         self._overview_timer.stop()
         self._monitoring_service.stop()
         super().closeEvent(event)
@@ -1377,6 +1418,7 @@ class MainWindow(QMainWindow):
         self._settings_page.set_current_baseline_multiplier(self._monitoring_service.get_baseline_multiplier())
         self._settings_page.set_current_rotation_enabled(self._rotation_enabled)
         self._settings_page.set_current_profile(self._profile_name)
+        self._update_status_indicator()
 
     def _refresh_devices_page(self) -> None:
         """Обновить карточки и таблицу на странице устройств."""
@@ -1445,6 +1487,8 @@ class MainWindow(QMainWindow):
         self._monitoring_service.set_interval_ms(interval_ms)
         self._settings.setValue("monitoring_interval_ms", interval_ms)
         self._overview_timer.setInterval(interval_ms)
+        if self._monitoring_enabled and self._overview_timer.isActive():
+            self._overview_timer.start(interval_ms)
         self._settings_page.set_current_interval_ms(interval_ms)
         self._update_status_indicator()
         self._refresh_overview_metrics()
@@ -1514,7 +1558,9 @@ class MainWindow(QMainWindow):
             if refresh_now:
                 self._refresh_overview_metrics()
             self._overview_timer.start()
+            self._status_timer.start()
         else:
+            self._status_timer.stop()
             self._overview_timer.stop()
             self._monitoring_service.stop()
             if refresh_now:
@@ -1523,13 +1569,17 @@ class MainWindow(QMainWindow):
 
     def _update_status_indicator(self) -> None:
         """Обновить текст состояния мониторинга."""
-        interval_label = self._settings_page.selected_interval_label()
         if self._monitoring_enabled:
             self._status_value_label.setProperty("active", "true")
-            self._status_value_label.setText(f"Активен • {interval_label}")
+            remaining_ms = self._overview_timer.remainingTime()
+            if remaining_ms < 0:
+                remaining_ms = self._monitoring_service.get_interval_ms()
+            self._status_value_label.setText(f"Активен • {self._format_remaining_time(remaining_ms)}")
+            self._status_value_label.setToolTip("Таймер до следующего обновления мониторинга.")
         else:
             self._status_value_label.setProperty("active", "false")
-            self._status_value_label.setText(f"Неактивен • {interval_label}")
+            self._status_value_label.setText("Неактивен")
+            self._status_value_label.setToolTip("Мониторинг остановлен. Нажмите, чтобы запустить.")
         self._status_value_label.style().unpolish(self._status_value_label)
         self._status_value_label.style().polish(self._status_value_label)
 
@@ -1591,3 +1641,15 @@ class MainWindow(QMainWindow):
         if last_sample_at is None:
             return "нет данных"
         return last_sample_at.strftime("%H:%M:%S")
+
+    @staticmethod
+    def _format_remaining_time(remaining_ms: int) -> str:
+        """Форматировать оставшееся время до следующего обновления."""
+        total_seconds = max(1, int((max(0, remaining_ms) + 999) // 1000))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours} ч {minutes:02d} мин"
+        if minutes > 0:
+            return f"{minutes} мин {seconds:02d} сек"
+        return f"{seconds} сек"
