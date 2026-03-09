@@ -1,5 +1,19 @@
 """Пакет сервисов приложения."""
 
-from .monitoring_service import AlertMetrics, AlertTableRow, DeviceTableRow, MonitoringService, OverviewMetrics
+from .monitoring_service import (
+    AlertLastTimes,
+    AlertMetrics,
+    AlertTableRow,
+    DeviceTableRow,
+    MonitoringService,
+    OverviewMetrics,
+)
 
-__all__ = ["MonitoringService", "OverviewMetrics", "DeviceTableRow", "AlertTableRow", "AlertMetrics"]
+__all__ = [
+    "MonitoringService",
+    "OverviewMetrics",
+    "DeviceTableRow",
+    "AlertTableRow",
+    "AlertMetrics",
+    "AlertLastTimes",
+]

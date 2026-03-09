@@ -41,15 +41,15 @@ def _ensure_devices(device_repository: DeviceRepository) -> dict[str, int]:
 def _seed_alerts(alert_repository: AlertRepository, device_ids: dict[str, int]) -> None:
     now = datetime.now()
     samples = [
-        ("WiFi Camera", "high", "Traffic spike detected on camera stream", 4, False),
-        ("WiFi Camera", "high", "Repeated outbound burst to unknown host", 11, True),
-        ("Smart TV", "medium", "Unexpected bandwidth increase during standby", 19, False),
-        ("Smart TV", "low", "New multicast activity discovered", 31, True),
-        ("Voice Assistant", "medium", "DNS request rate higher than baseline", 46, False),
-        ("Voice Assistant", "low", "Background sync above typical pattern", 63, False),
-        ("WiFi Camera", "high", "Large upload session detected", 88, False),
-        ("Smart TV", "medium", "Frequent reconnections to cloud endpoint", 121, True),
-        ("Voice Assistant", "low", "Minor traffic deviation in idle mode", 155, False),
+        ("WiFi Camera", "high", "Резкий всплеск трафика на потоке камеры", 4, False),
+        ("WiFi Camera", "high", "Повторяющийся исходящий всплеск на неизвестный хост", 11, True),
+        ("Smart TV", "medium", "Неожиданный рост трафика в режиме ожидания", 19, False),
+        ("Smart TV", "low", "Обнаружена новая multicast-активность", 31, True),
+        ("Voice Assistant", "medium", "Частота DNS-запросов выше baseline", 46, False),
+        ("Voice Assistant", "low", "Фоновая синхронизация выше обычного уровня", 63, False),
+        ("WiFi Camera", "high", "Обнаружена крупная сессия исходящей передачи", 88, False),
+        ("Smart TV", "medium", "Частые повторные подключения к облачному узлу", 121, True),
+        ("Voice Assistant", "low", "Небольшое отклонение трафика в режиме простоя", 155, False),
     ]
 
     for device_name, severity, message, minutes_ago, acknowledged in samples:

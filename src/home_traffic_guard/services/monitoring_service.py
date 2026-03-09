@@ -62,6 +62,16 @@ class AlertMetrics:
     acknowledged_count: int
 
 
+@dataclass(slots=True)
+class AlertLastTimes:
+    """Время последнего события для каждой карточки страницы `Оповещения`."""
+
+    high_last_at: datetime | None
+    medium_last_at: datetime | None
+    low_last_at: datetime | None
+    acknowledged_last_at: datetime | None
+
+
 class MonitoringService(QObject):
     """Координирует периодический сбор, проверку baseline и создание оповещений."""
 
@@ -155,8 +165,8 @@ class MonitoringService(QObject):
                         id=None,
                         device_id=item.device_id,
                         message=(
-                            f"Traffic spike detected: {item.bytes_per_second:.2f} B/s "
-                            f"(baseline {baseline:.2f} B/s, threshold {threshold:.2f} B/s)"
+                            f"Обнаружен всплеск трафика: {item.bytes_per_second:.2f} Б/с "
+                            f"(baseline {baseline:.2f} Б/с, порог {threshold:.2f} Б/с)"
                         ),
                         severity="high",
                         created_at=datetime.now(),
@@ -261,6 +271,38 @@ class MonitoringService(QObject):
             medium_count=medium_count,
             low_count=low_count,
             acknowledged_count=acknowledged_count,
+        )
+
+    def get_alert_last_times(self) -> AlertLastTimes:
+        """Вернуть время последнего события по каждой карточке оповещений."""
+        recent_alerts = self._alert_repository.list_recent(limit=1000)
+
+        high_last_at: datetime | None = None
+        medium_last_at: datetime | None = None
+        low_last_at: datetime | None = None
+        acknowledged_last_at: datetime | None = None
+
+        for alert in recent_alerts:
+            severity = alert.severity.lower()
+            if severity == "high":
+                if high_last_at is None or alert.created_at > high_last_at:
+                    high_last_at = alert.created_at
+            elif severity == "medium":
+                if medium_last_at is None or alert.created_at > medium_last_at:
+                    medium_last_at = alert.created_at
+            else:
+                if low_last_at is None or alert.created_at > low_last_at:
+                    low_last_at = alert.created_at
+
+            if alert.acknowledged and alert.acknowledged_at is not None:
+                if acknowledged_last_at is None or alert.acknowledged_at > acknowledged_last_at:
+                    acknowledged_last_at = alert.acknowledged_at
+
+        return AlertLastTimes(
+            high_last_at=high_last_at,
+            medium_last_at=medium_last_at,
+            low_last_at=low_last_at,
+            acknowledged_last_at=acknowledged_last_at,
         )
 
     def get_alert_table_rows(

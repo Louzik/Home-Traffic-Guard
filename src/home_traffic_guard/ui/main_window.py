@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMainWindow,
     QPushButton,
+    QSplitter,
     QSizePolicy,
     QStackedWidget,
     QTableWidget,
@@ -253,8 +254,8 @@ class DevicesPage(QWidget):
         cards_layout.setVerticalSpacing(12)
 
         for index, metric in enumerate(metrics):
-            row = index // 2
-            column = index % 2
+            row = 0
+            column = index
             card = MetricCard(metric[0], metric[1], metric[2], cards)
             self._cards[metric[0]] = card
             cards_layout.addWidget(card, row, column)
@@ -354,6 +355,8 @@ class DevicesPage(QWidget):
 class AlertsPage(QWidget):
     """Страница оповещений с карточками, фильтрами и таблицей."""
 
+    _MESSAGE_PREVIEW_LENGTH = 90
+
     def __init__(
         self,
         title: str,
@@ -363,6 +366,7 @@ class AlertsPage(QWidget):
     ) -> None:
         super().__init__(parent)
         self._cards: dict[str, MetricCard] = {}
+        self._expanded_alert_ids: set[int] = set()
         self.setObjectName("PageRoot")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -474,18 +478,20 @@ class AlertsPage(QWidget):
         self._table.setObjectName("AlertsTable")
         self._table.setColumnCount(7)
         self._table.setHorizontalHeaderLabels(
-            ["ID", "Время", "Устройство", "Уровень", "Сообщение", "Статус", "Подтверждено"]
+            ["", "Время", "Устройство", "Уровень", "Сообщение", "Статус", "Подтверждено"]
         )
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self._table.setAlternatingRowColors(True)
         self._table.verticalHeader().setVisible(False)
         self._table.setSortingEnabled(False)
         self._table.setMinimumHeight(290)
+        self._table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
 
         header_view = self._table.horizontalHeader()
-        header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self._table.setColumnWidth(0, 40)
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header_view.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
@@ -494,12 +500,17 @@ class AlertsPage(QWidget):
         header_view.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
 
         table_layout.addWidget(self._table)
+        split = QSplitter(Qt.Orientation.Vertical, self)
+        split.setChildrenCollapsible(False)
+        split.setHandleWidth(8)
+        split.addWidget(cards)
+        split.addWidget(table_panel)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+        split.setSizes([150, 850])
 
         layout.addWidget(header)
-        layout.addWidget(cards)
-        layout.addWidget(table_panel, 1)
-
-        self._table.itemSelectionChanged.connect(self._sync_ack_button_state)
+        layout.addWidget(split, 1)
 
     @property
     def severity_filter_buttons(self) -> tuple[QPushButton, ...]:
@@ -530,18 +541,22 @@ class AlertsPage(QWidget):
         """Проверить, включен ли фильтр неподтвержденных оповещений."""
         return self._unack_only_checkbox.isChecked()
 
-    def selected_alert(self) -> tuple[int, bool] | None:
-        """Вернуть id и статус подтверждения выбранного оповещения."""
-        current_row = self._table.currentRow()
-        if current_row < 0:
-            return None
-
-        id_item = self._table.item(current_row, 0)
-        status_item = self._table.item(current_row, 5)
-        if id_item is None or status_item is None:
-            return None
-
-        return int(id_item.text()), bool(status_item.data(Qt.ItemDataRole.UserRole))
+    def checked_alerts(self) -> list[tuple[int, bool]]:
+        """Вернуть выбранные оповещения: (id, acknowledged)."""
+        result: list[tuple[int, bool]] = []
+        for row in range(self._table.rowCount()):
+            checkbox = self._checkbox_for_row(row)
+            status_item = self._table.item(row, 5)
+            if checkbox is None or status_item is None:
+                continue
+            if not checkbox.isChecked():
+                continue
+            alert_id = checkbox.property("alertId")
+            if not isinstance(alert_id, int):
+                continue
+            acknowledged = bool(status_item.data(Qt.ItemDataRole.UserRole))
+            result.append((alert_id, acknowledged))
+        return result
 
     def set_metric_value(self, title: str, value: str, caption: str | None = None) -> None:
         """Обновить значение карточки по заголовку."""
@@ -554,16 +569,36 @@ class AlertsPage(QWidget):
 
     def set_rows(self, rows: list[AlertTableRow]) -> None:
         """Заполнить таблицу оповещений."""
-        selected = self.selected_alert()
-        selected_alert_id = selected[0] if selected is not None else None
+        checked_ids: set[int] = set()
+        for row in range(self._table.rowCount()):
+            checkbox = self._checkbox_for_row(row)
+            if checkbox is None:
+                continue
+            if not checkbox.isChecked():
+                continue
+            alert_id = checkbox.property("alertId")
+            if isinstance(alert_id, int):
+                checked_ids.add(alert_id)
 
         self._table.blockSignals(True)
         self._table.setUpdatesEnabled(False)
         try:
             self._table.setRowCount(len(rows))
-            selected_row_index: int | None = None
             for row_index, row in enumerate(rows):
-                self._set_item(row_index, 0, str(row.alert_id), Qt.AlignmentFlag.AlignCenter)
+                select_widget = QWidget(self._table)
+                select_layout = QHBoxLayout(select_widget)
+                # Легкий сдвиг влево для визуального центрирования в узкой колонке.
+                select_layout.setContentsMargins(0, 0, 6, 0)
+                select_layout.setSpacing(0)
+                select_checkbox = QCheckBox(select_widget)
+                select_checkbox.setObjectName("AlertsSelectCheckbox")
+                select_checkbox.setChecked(row.alert_id in checked_ids)
+                select_checkbox.setProperty("alertId", row.alert_id)
+                select_checkbox.stateChanged.connect(lambda _: self._sync_ack_button_state())
+                select_layout.addStretch(1)
+                select_layout.addWidget(select_checkbox)
+                select_layout.addStretch(1)
+                self._table.setCellWidget(row_index, 0, select_widget)
                 self._set_item(
                     row_index,
                     1,
@@ -579,7 +614,11 @@ class AlertsPage(QWidget):
                     severity_item.setForeground(Qt.GlobalColor.darkYellow)
                 else:
                     severity_item.setForeground(Qt.GlobalColor.darkGreen)
-                self._set_item(row_index, 4, row.message)
+                self._table.setCellWidget(
+                    row_index,
+                    4,
+                    self._build_message_cell(row_index, row.alert_id, row.message),
+                )
                 status_item = self._set_item(
                     row_index,
                     5,
@@ -595,30 +634,103 @@ class AlertsPage(QWidget):
                     row.acknowledged_at.strftime("%d.%m %H:%M:%S") if row.acknowledged_at else "—",
                     Qt.AlignmentFlag.AlignCenter,
                 )
-
-                if selected_alert_id is not None and row.alert_id == selected_alert_id:
-                    selected_row_index = row_index
-
-            if selected_row_index is not None:
-                self._table.selectRow(selected_row_index)
-            elif self._table.rowCount() > 0:
-                self._table.selectRow(0)
+                self._apply_row_height(row_index, row.alert_id)
         finally:
             self._table.setUpdatesEnabled(True)
             self._table.blockSignals(False)
 
         self._sync_ack_button_state()
 
+    def _checkbox_for_row(self, row: int) -> QCheckBox | None:
+        widget = self._table.cellWidget(row, 0)
+        if widget is None:
+            return None
+        return widget.findChild(QCheckBox, "AlertsSelectCheckbox")
+
+    def _build_message_cell(self, row: int, alert_id: int, message: str) -> QWidget:
+        """Собрать ячейку сообщения с inline разворачиванием текста."""
+        container = QWidget(self._table)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(6, 2, 6, 2)
+        layout.setSpacing(6)
+
+        label = QLabel(container)
+        label.setToolTip(message)
+        label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        label.setWordWrap(True)
+        label.setStyleSheet("color: #1e3d4f; font-size: 11px; font-weight: 400;")
+
+        expand_button = QPushButton("⋯", container)
+        expand_button.setObjectName("AlertMessageExpandButton")
+        expand_button.setFixedSize(18, 18)
+        expand_button.clicked.connect(
+            lambda _:
+            self._toggle_message_expanded(row, alert_id, message, label, expand_button)
+        )
+
+        layout.addWidget(label, 1)
+        layout.addWidget(expand_button, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+        self._apply_message_state(row, alert_id, message, label, expand_button)
+        return container
+
+    def _toggle_message_expanded(
+        self,
+        row: int,
+        alert_id: int,
+        message: str,
+        label: QLabel,
+        button: QPushButton,
+    ) -> None:
+        if alert_id in self._expanded_alert_ids:
+            self._expanded_alert_ids.discard(alert_id)
+        else:
+            self._expanded_alert_ids.add(alert_id)
+        self._apply_message_state(row, alert_id, message, label, button)
+
+    def _apply_message_state(
+        self,
+        row: int,
+        alert_id: int,
+        message: str,
+        label: QLabel,
+        button: QPushButton,
+    ) -> None:
+        expanded = alert_id in self._expanded_alert_ids
+        if expanded:
+            label.setText(message)
+            button.setText("▴")
+            button.setToolTip("Свернуть сообщение")
+        else:
+            short = self._short_message(message)
+            label.setText(short)
+            button.setText("⋯")
+            button.setToolTip("Развернуть сообщение")
+        self._apply_row_height(row, alert_id)
+
+    def _apply_row_height(self, row: int, alert_id: int) -> None:
+        if alert_id in self._expanded_alert_ids:
+            self._table.resizeRowToContents(row)
+            self._table.setRowHeight(row, max(self._table.rowHeight(row), 64))
+        else:
+            self._table.setRowHeight(row, 42)
+
+    def _short_message(self, message: str) -> str:
+        if len(message) <= self._MESSAGE_PREVIEW_LENGTH:
+            return message
+        cut = self._MESSAGE_PREVIEW_LENGTH - 3
+        return f"{message[:cut]}..."
+
     def _sync_ack_button_state(self) -> None:
-        selected = self.selected_alert()
-        if selected is None:
+        checked = self.checked_alerts()
+        if not checked:
             self._ack_button.setEnabled(False)
             self._ack_button.setText("Подтвердить")
             return
-
-        _, acknowledged = selected
-        self._ack_button.setEnabled(True)
-        self._ack_button.setText("Снять подтверждение" if acknowledged else "Подтвердить")
+        unack_count = sum(1 for _, acknowledged in checked if not acknowledged)
+        self._ack_button.setEnabled(unack_count > 0)
+        self._ack_button.setText(
+            f"Подтвердить ({unack_count})" if unack_count > 0 else "Подтверждено"
+        )
 
     def _set_item(
         self,
@@ -856,29 +968,29 @@ class SettingsPage(QWidget):
     def _update_interval_view(self) -> None:
         self._interval_metric.set_value(self.selected_interval_label())
         self._interval_metric.set_step_enabled(
-            can_step_left=self._interval_index > 0,
-            can_step_right=self._interval_index < len(self._interval_values) - 1,
+            can_step_left=len(self._interval_values) > 1,
+            can_step_right=len(self._interval_values) > 1,
         )
 
     def _update_baseline_view(self) -> None:
         self._baseline_metric.set_value(self.selected_baseline_label())
         self._baseline_metric.set_step_enabled(
-            can_step_left=self._baseline_index > 0,
-            can_step_right=self._baseline_index < len(self._baseline_values) - 1,
+            can_step_left=len(self._baseline_values) > 1,
+            can_step_right=len(self._baseline_values) > 1,
         )
 
     def _update_rotation_view(self) -> None:
         self._rotation_metric.set_value(self.selected_rotation_label())
         self._rotation_metric.set_step_enabled(
-            can_step_left=self._rotation_index > 0,
-            can_step_right=self._rotation_index < len(self._rotation_values) - 1,
+            can_step_left=len(self._rotation_values) > 1,
+            can_step_right=len(self._rotation_values) > 1,
         )
 
     def _update_profile_view(self) -> None:
         self._profile_metric.set_value(self.selected_profile_name())
         self._profile_metric.set_step_enabled(
-            can_step_left=self._profile_index > 0,
-            can_step_right=self._profile_index < len(self._profile_values) - 1,
+            can_step_left=len(self._profile_values) > 1,
+            can_step_right=len(self._profile_values) > 1,
         )
 
     def _index_for_interval(self, interval_ms: int) -> int:
@@ -909,8 +1021,9 @@ class SettingsPage(QWidget):
     def _step_index(current_index: int, total: int, direction: int) -> int:
         if direction not in (-1, 1):
             return current_index
-        new_index = current_index + direction
-        return max(0, min(new_index, total - 1))
+        if total <= 0:
+            return current_index
+        return (current_index + direction) % total
 
     @staticmethod
     def _label_for_interval(interval_ms: int) -> str:
@@ -935,8 +1048,8 @@ class MainWindow(QMainWindow):
         self._load_saved_rotation()
         self._load_saved_profile()
         self.setWindowTitle("Home Traffic Guard")
-        self.resize(1280, 720)
-        self.setMinimumSize(1000, 620)
+        self.resize(1280, 850)
+        self.setMinimumSize(1280, 850)
 
         self.setStyleSheet(
             """
@@ -1114,7 +1227,7 @@ class MainWindow(QMainWindow):
                 border-radius: 8px;
                 gridline-color: #b7c2ce;
                 color: #1e3d4f;
-                font-size: 12px;
+                font-size: 11px;
                 selection-background-color: #b7c8d6;
                 selection-color: #173243;
             }
@@ -1122,6 +1235,7 @@ class MainWindow(QMainWindow):
                 background-color: #c5cfda;
                 color: #274657;
                 font-weight: 700;
+                font-size: 11px;
                 border: none;
                 border-right: 1px solid #b4bfcb;
                 padding: 6px 8px;
@@ -1214,6 +1328,47 @@ class MainWindow(QMainWindow):
                 background-color: #2f5d78;
                 border: 1px solid #2f5d78;
             }
+            QCheckBox#AlertsSelectCheckbox {
+                spacing: 0;
+                background: transparent;
+            }
+            QCheckBox#AlertsSelectCheckbox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #8ea3b4;
+                border-radius: 5px;
+                background-color: #d7dfe8;
+            }
+            QCheckBox#AlertsSelectCheckbox::indicator:hover {
+                border: 1px solid #6e8799;
+                background-color: #e0e7ee;
+            }
+            QCheckBox#AlertsSelectCheckbox::indicator:checked {
+                background-color: #2a5872;
+                border: 1px solid #2a5872;
+            }
+            QPushButton#AlertMessageExpandButton {
+                min-width: 18px;
+                max-width: 18px;
+                min-height: 18px;
+                max-height: 18px;
+                border: 1px solid #8ea3b4;
+                border-radius: 4px;
+                background-color: #d9e0e8;
+                color: #35586d;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 0;
+            }
+            QPushButton#AlertMessageExpandButton:hover {
+                background-color: #e2e8ee;
+                border-color: #7891a2;
+                color: #274657;
+            }
+            QPushButton#AlertMessageExpandButton:pressed {
+                background-color: #cfd8e1;
+                border-color: #6c8596;
+            }
             QPushButton#AlertsAckButton {
                 min-height: 36px;
                 border: none;
@@ -1241,7 +1396,7 @@ class MainWindow(QMainWindow):
                 border-radius: 8px;
                 gridline-color: #b7c2ce;
                 color: #1e3d4f;
-                font-size: 12px;
+                font-size: 11px;
                 selection-background-color: #b7c8d6;
                 selection-color: #173243;
             }
@@ -1381,7 +1536,7 @@ class MainWindow(QMainWindow):
         self._alerts_page.unack_only_checkbox.stateChanged.connect(
             lambda _: self._refresh_alerts_page()
         )
-        self._alerts_page.ack_button.clicked.connect(self._toggle_selected_alert_acknowledged)
+        self._alerts_page.ack_button.clicked.connect(self._acknowledge_checked_alerts)
 
         self._overview_timer = QTimer(self)
         self._overview_timer.setInterval(self._monitoring_service.get_interval_ms())
@@ -1389,14 +1544,19 @@ class MainWindow(QMainWindow):
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(1000)
         self._status_timer.timeout.connect(self._update_status_indicator)
+        self._alerts_elapsed_timer = QTimer(self)
+        self._alerts_elapsed_timer.setInterval(1000)
+        self._alerts_elapsed_timer.timeout.connect(self._tick_alert_cards)
 
     def showEvent(self, event) -> None:  # noqa: N802
         """Запустить мониторинг при отображении окна."""
         super().showEvent(event)
+        self._alerts_elapsed_timer.start()
         self._set_monitoring_enabled(self._monitoring_enabled, refresh_now=True)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         """Остановить мониторинг перед закрытием окна."""
+        self._alerts_elapsed_timer.stop()
         self._status_timer.stop()
         self._overview_timer.stop()
         self._monitoring_service.stop()
@@ -1449,11 +1609,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_alerts_page(self) -> None:
         """Обновить карточки и таблицу на странице оповещений."""
-        metrics = self._monitoring_service.get_alert_metrics()
-        self._alerts_page.set_metric_value("Критичные", str(metrics.high_count))
-        self._alerts_page.set_metric_value("Средние", str(metrics.medium_count))
-        self._alerts_page.set_metric_value("Низкие", str(metrics.low_count))
-        self._alerts_page.set_metric_value("Подтверждено", str(metrics.acknowledged_count))
+        self._render_alert_cards()
 
         rows = self._monitoring_service.get_alert_table_rows(
             severity_filter=self._alerts_page.selected_severity_filter(),
@@ -1462,14 +1618,46 @@ class MainWindow(QMainWindow):
         )
         self._alerts_page.set_rows(rows)
 
-    def _toggle_selected_alert_acknowledged(self) -> None:
-        """Подтвердить или снять подтверждение у выбранного оповещения."""
-        selected = self._alerts_page.selected_alert()
-        if selected is None:
+    def _tick_alert_cards(self) -> None:
+        """Раз в секунду обновить подписи карточек на странице оповещений."""
+        if self._pages.currentIndex() != 2:
             return
+        self._render_alert_cards()
 
-        alert_id, acknowledged = selected
-        self._monitoring_service.set_alert_acknowledged(alert_id, not acknowledged)
+    def _render_alert_cards(self) -> None:
+        """Обновить значения и подписи карточек раздела оповещений."""
+        metrics = self._monitoring_service.get_alert_metrics()
+        last_times = self._monitoring_service.get_alert_last_times()
+        self._alerts_page.set_metric_value(
+            "Критичные",
+            str(metrics.high_count),
+            self._alert_caption("События с высоким уровнем риска.", last_times.high_last_at),
+        )
+        self._alerts_page.set_metric_value(
+            "Средние",
+            str(metrics.medium_count),
+            self._alert_caption("Отклонения, которые стоит перепроверить.", last_times.medium_last_at),
+        )
+        self._alerts_page.set_metric_value(
+            "Низкие",
+            str(metrics.low_count),
+            self._alert_caption("Информационные предупреждения.", last_times.low_last_at),
+        )
+        self._alerts_page.set_metric_value(
+            "Подтверждено",
+            str(metrics.acknowledged_count),
+            self._alert_caption("Оповещения, по которым завершена проверка.", last_times.acknowledged_last_at),
+        )
+
+    def _acknowledge_checked_alerts(self) -> None:
+        """Подтвердить выбранные оповещения из таблицы."""
+        checked = self._alerts_page.checked_alerts()
+        if not checked:
+            return
+        for alert_id, acknowledged in checked:
+            if acknowledged:
+                continue
+            self._monitoring_service.set_alert_acknowledged(alert_id, True)
         self._refresh_alerts_page()
 
     def _decrease_interval(self) -> None:
@@ -1583,6 +1771,13 @@ class MainWindow(QMainWindow):
         self._status_value_label.style().unpolish(self._status_value_label)
         self._status_value_label.style().polish(self._status_value_label)
 
+    def _alert_caption(self, base_text: str, last_at: datetime | None) -> str:
+        """Сформировать подпись карточки с собственным временем последнего события."""
+        if last_at is None:
+            return f"{base_text}\nПоследнее срабатывание: нет данных."
+        elapsed = datetime.now() - last_at
+        return f"{base_text}\nПоследнее срабатывание: {self._format_elapsed_delta(elapsed)} назад."
+
     def _apply_saved_interval(self) -> None:
         """Загрузить сохраненный интервал и применить его к мониторингу."""
         allowed_intervals = {value for _, value in INTERVAL_OPTIONS}
@@ -1646,6 +1841,18 @@ class MainWindow(QMainWindow):
     def _format_remaining_time(remaining_ms: int) -> str:
         """Форматировать оставшееся время до следующего обновления."""
         total_seconds = max(1, int((max(0, remaining_ms) + 999) // 1000))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours} ч {minutes:02d} мин"
+        if minutes > 0:
+            return f"{minutes} мин {seconds:02d} сек"
+        return f"{seconds} сек"
+
+    @staticmethod
+    def _format_elapsed_delta(delta: timedelta) -> str:
+        """Форматировать прошедшее время для страницы оповещений."""
+        total_seconds = max(0, int(delta.total_seconds()))
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         if hours > 0:
