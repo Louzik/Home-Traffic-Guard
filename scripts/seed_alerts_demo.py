@@ -41,15 +41,33 @@ def _ensure_devices(device_repository: DeviceRepository) -> dict[str, int]:
 def _seed_alerts(alert_repository: AlertRepository, device_ids: dict[str, int]) -> None:
     now = datetime.now()
     samples = [
-        ("WiFi Camera", "high", "Резкий всплеск трафика на потоке камеры", 4, False),
-        ("WiFi Camera", "high", "Повторяющийся исходящий всплеск на неизвестный хост", 11, True),
-        ("Smart TV", "medium", "Неожиданный рост трафика в режиме ожидания", 19, False),
-        ("Smart TV", "low", "Обнаружена новая multicast-активность", 31, True),
-        ("Voice Assistant", "medium", "Частота DNS-запросов выше baseline", 46, False),
-        ("Voice Assistant", "low", "Фоновая синхронизация выше обычного уровня", 63, False),
-        ("WiFi Camera", "high", "Обнаружена крупная сессия исходящей передачи", 88, False),
-        ("Smart TV", "medium", "Частые повторные подключения к облачному узлу", 121, True),
-        ("Voice Assistant", "low", "Небольшое отклонение трафика в режиме простоя", 155, False),
+        ("WiFi Camera", "high", "Резкий всплеск трафика на потоке камеры", 2, False),
+        ("Smart TV", "medium", "Кратковременный рост фоновых подключений", 3, False),
+        ("Voice Assistant", "low", "Незначительное отклонение после последней проверки", 4, False),
+        ("WiFi Camera", "high", "Порог baseline превышен сразу после обновления", 6, False),
+        ("Smart TV", "medium", "Всплеск DNS-запросов в текущем цикле", 9, False),
+        ("Voice Assistant", "low", "Фоновая синхронизация выше обычного уровня", 12, False),
+        ("WiFi Camera", "high", "Повторяющийся исходящий всплеск на неизвестный хост", 16, True),
+        ("Smart TV", "low", "Обнаружен краткий всплеск служебного трафика", 21, True),
+        ("Voice Assistant", "medium", "Частота DNS-запросов выше baseline", 27, False),
+        ("WiFi Camera", "medium", "Необычный всплеск пакетов после простоя", 33, False),
+        ("Smart TV", "high", "Объем трафика превысил baseline-порог", 41, False),
+        ("Voice Assistant", "high", "Крупная исходящая передача на новый адрес", 52, True),
+        ("WiFi Camera", "low", "Небольшое отклонение трафика в режиме простоя", 64, False),
+        ("Smart TV", "medium", "Частые повторные API-запросы к медиа-узлу", 79, False),
+        ("Voice Assistant", "high", "Резкое увеличение исходящего трафика", 95, False),
+        ("WiFi Camera", "medium", "Серии коротких всплесков трафика", 113, True),
+        ("Smart TV", "low", "Новая multicast-активность в локальной сети", 136, False),
+        ("Voice Assistant", "medium", "Продолжительный всплеск DNS-запросов", 159, False),
+        (
+            "WiFi Camera",
+            "high",
+            "Обнаружена длительная аномалия: устройство в течение нескольких циклов мониторинга "
+            "отправляет большие объемы данных на ранее неиспользуемый внешний адрес, при этом "
+            "частота соединений и суммарный трафик устойчиво превышают baseline и заданный порог.",
+            185,
+            False,
+        ),
     ]
 
     for device_name, severity, message, minutes_ago, acknowledged in samples:
@@ -82,6 +100,11 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Путь к SQLite БД. По умолчанию используется AppConfig.default().db_path",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Очистить таблицу alerts перед сидированием.",
+    )
     return parser.parse_args()
 
 
@@ -93,6 +116,11 @@ def main() -> int:
 
     device_repository = DeviceRepository(database.connect)
     alert_repository = AlertRepository(database.connect)
+
+    if args.reset:
+        with database.connect() as connection:
+            connection.execute("DELETE FROM alerts")
+            connection.commit()
 
     device_ids = _ensure_devices(device_repository)
     _seed_alerts(alert_repository, device_ids)

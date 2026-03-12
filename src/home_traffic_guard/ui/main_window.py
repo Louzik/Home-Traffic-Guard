@@ -1494,9 +1494,9 @@ class MainWindow(QMainWindow):
             "Оповещения",
             "Аномалии и события безопасности, требующие внимания.",
             [
-                ("Критичные", "0", "События с высоким уровнем риска."),
-                ("Средние", "0", "Отклонения, которые стоит перепроверить."),
-                ("Низкие", "0", "Информационные предупреждения."),
+                ("Критичные", "0", "Неподтвержденные события с высоким уровнем риска."),
+                ("Средние", "0", "Неподтвержденные отклонения, которые стоит перепроверить."),
+                ("Низкие", "0", "Неподтвержденные информационные предупреждения."),
                 ("Подтверждено", "0", "Оповещения, по которым завершена проверка."),
             ],
             self._pages,
@@ -1631,17 +1631,20 @@ class MainWindow(QMainWindow):
         self._alerts_page.set_metric_value(
             "Критичные",
             str(metrics.high_count),
-            self._alert_caption("События с высоким уровнем риска.", last_times.high_last_at),
+            self._alert_caption("Неподтвержденные события с высоким уровнем риска.", last_times.high_last_at),
         )
         self._alerts_page.set_metric_value(
             "Средние",
             str(metrics.medium_count),
-            self._alert_caption("Отклонения, которые стоит перепроверить.", last_times.medium_last_at),
+            self._alert_caption(
+                "Неподтвержденные отклонения, которые стоит перепроверить.",
+                last_times.medium_last_at,
+            ),
         )
         self._alerts_page.set_metric_value(
             "Низкие",
             str(metrics.low_count),
-            self._alert_caption("Информационные предупреждения.", last_times.low_last_at),
+            self._alert_caption("Неподтвержденные информационные предупреждения.", last_times.low_last_at),
         )
         self._alerts_page.set_metric_value(
             "Подтверждено",

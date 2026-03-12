@@ -143,6 +143,63 @@ class OverviewMetricsTestCase(unittest.TestCase):
         self.assertEqual(300.0, rows[0].latest_speed_bps)
         self.assertEqual("Высокий", rows[0].risk_level)
 
+    def test_alert_metrics_count_unacknowledged_by_severity(self) -> None:
+        """Карточки уровней должны считать только неподтвержденные оповещения."""
+        now = datetime.now()
+        device = self.device_repository.create(
+            Device(id=None, name="AlertDevice", ip_address="192.168.1.60", mac_address=None),
+        )
+        assert device.id is not None
+
+        self.alert_repository.create(
+            Alert(
+                id=None,
+                device_id=device.id,
+                message="h1",
+                severity="high",
+                created_at=now - timedelta(hours=40),
+                acknowledged=False,
+            )
+        )
+        self.alert_repository.create(
+            Alert(
+                id=None,
+                device_id=device.id,
+                message="h2",
+                severity="high",
+                created_at=now - timedelta(minutes=5),
+                acknowledged=True,
+                acknowledged_at=now - timedelta(minutes=3),
+            )
+        )
+        self.alert_repository.create(
+            Alert(
+                id=None,
+                device_id=device.id,
+                message="m1",
+                severity="medium",
+                created_at=now - timedelta(minutes=4),
+                acknowledged=False,
+            )
+        )
+        self.alert_repository.create(
+            Alert(
+                id=None,
+                device_id=device.id,
+                message="l1",
+                severity="low",
+                created_at=now - timedelta(minutes=2),
+                acknowledged=False,
+            )
+        )
+
+        metrics = self.monitoring_service.get_alert_metrics()
+
+        self.assertEqual(1, metrics.high_count)
+        self.assertEqual(1, metrics.medium_count)
+        self.assertEqual(1, metrics.low_count)
+        self.assertEqual(1, metrics.acknowledged_count)
+
 
 if __name__ == "__main__":
     unittest.main()

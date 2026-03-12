@@ -56,9 +56,11 @@ class AlertTableRow:
 class AlertMetrics:
     """Метрики для карточек на странице `Оповещения`."""
 
+    # Количество НЕподтвержденных оповещений по уровням.
     high_count: int
     medium_count: int
     low_count: int
+    # Количество подтвержденных оповещений.
     acknowledged_count: int
 
 
@@ -242,9 +244,8 @@ class MonitoringService(QObject):
         return rows
 
     def get_alert_metrics(self) -> AlertMetrics:
-        """Собрать метрики по оповещениям за последние 24 часа."""
-        recent_alerts = self._alert_repository.list_recent(limit=1000)
-        cutoff = datetime.now() - timedelta(hours=24)
+        """Собрать актуальные метрики оповещений для карточек."""
+        recent_alerts = self._alert_repository.list_recent(limit=5000)
 
         high_count = 0
         medium_count = 0
@@ -252,7 +253,8 @@ class MonitoringService(QObject):
         acknowledged_count = 0
 
         for alert in recent_alerts:
-            if alert.created_at < cutoff:
+            if alert.acknowledged:
+                acknowledged_count += 1
                 continue
 
             severity = alert.severity.lower()
@@ -262,9 +264,6 @@ class MonitoringService(QObject):
                 medium_count += 1
             else:
                 low_count += 1
-
-            if alert.acknowledged:
-                acknowledged_count += 1
 
         return AlertMetrics(
             high_count=high_count,
