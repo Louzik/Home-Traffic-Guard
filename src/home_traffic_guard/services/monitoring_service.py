@@ -11,7 +11,7 @@ from PySide6.QtCore import QObject, QTimer
 from home_traffic_guard.analytics.baseline import BaselineAnalyzer
 from home_traffic_guard.collectors.base import TrafficCollector
 from home_traffic_guard.db.repositories import AlertRepository, DeviceRepository, TrafficSampleRepository
-from home_traffic_guard.domain.models import Alert, TrafficSample
+from home_traffic_guard.domain.models import Alert, Device, TrafficSample
 from home_traffic_guard.notifications.service import NotificationService
 
 
@@ -348,6 +348,38 @@ class MonitoringService(QObject):
             acknowledged=acknowledged,
             changed_at=datetime.now(),
         )
+
+    def list_devices(self) -> list[Device]:
+        """Вернуть полный список устройств."""
+        return self._device_repository.list_all()
+
+    def create_device(self, name: str, ip_address: str, mac_address: str | None) -> Device:
+        """Создать устройство."""
+        return self._device_repository.create(
+            Device(
+                id=None,
+                name=name,
+                ip_address=ip_address,
+                mac_address=mac_address,
+            )
+        )
+
+    def update_device(self, device_id: int, name: str, ip_address: str, mac_address: str | None) -> None:
+        """Обновить устройство."""
+        self._device_repository.update(
+            Device(
+                id=device_id,
+                name=name,
+                ip_address=ip_address,
+                mac_address=mac_address,
+            )
+        )
+
+    def delete_device(self, device_id: int) -> None:
+        """Удалить устройство."""
+        if device_id <= 0:
+            return
+        self._device_repository.delete(device_id)
 
     def _start_collector_if_supported(self) -> None:
         """Запустить коллектор, если он поддерживает жизненный цикл start/stop."""

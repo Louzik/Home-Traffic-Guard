@@ -52,6 +52,28 @@ class DeviceRepository:
             for row in rows
         ]
 
+    def update(self, device: Device) -> None:
+        """Обновить существующее устройство."""
+        if device.id is None:
+            raise ValueError("device.id is required for update")
+
+        with self._connection_factory() as connection:
+            connection.execute(
+                """
+                UPDATE devices
+                SET name = ?, ip_address = ?, mac_address = ?
+                WHERE id = ?
+                """,
+                (device.name, device.ip_address, device.mac_address, device.id),
+            )
+            connection.commit()
+
+    def delete(self, device_id: int) -> None:
+        """Удалить устройство по id."""
+        with self._connection_factory() as connection:
+            connection.execute("DELETE FROM devices WHERE id = ?", (device_id,))
+            connection.commit()
+
 
 class TrafficSampleRepository:
     """Репозиторий для операций с таблицей `traffic_samples`."""

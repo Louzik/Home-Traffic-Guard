@@ -41,8 +41,10 @@ class HomeTrafficGuardApp:
         traffic_repository = TrafficSampleRepository(database.connect)
         alert_repository = AlertRepository(database.connect)
 
-        self._seed_devices(device_repository)
-        self._seed_demo_alerts(device_repository, alert_repository)
+        if self._config.demo_mode:
+            logger.info("Запуск в demo mode: добавляем тестовые устройства и оповещения")
+            self._seed_devices(device_repository)
+            self._seed_demo_alerts(device_repository, alert_repository)
         collector = self._build_collector()
 
         monitoring_service = MonitoringService(

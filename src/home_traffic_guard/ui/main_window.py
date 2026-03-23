@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from ipaddress import ip_address
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 
@@ -12,13 +14,18 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QFrame,
+    QFormLayout,
     QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMainWindow,
+    QMessageBox,
     QPushButton,
+    QDialog,
+    QDialogButtonBox,
     QSplitter,
     QSizePolicy,
     QStackedWidget,
@@ -28,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from home_traffic_guard.domain.models import Device
 from home_traffic_guard.services.monitoring_service import AlertTableRow, DeviceTableRow, MonitoringService
 
 INTERVAL_OPTIONS: list[tuple[str, int]] = [
@@ -51,6 +59,7 @@ BASELINE_OPTIONS: list[float] = [1.5, 2.0, 2.5, 3.0, 4.0]
 ROTATION_OPTIONS: list[tuple[str, bool]] = [("ВКЛ.", True), ("ВЫКЛ.", False)]
 PROFILE_OPTIONS: list[str] = ["Локальный", "SNMP", "NetFlow", "Гибридный"]
 DEFAULT_ROTATING_LOG_MAX_BYTES = 1_000_000
+MAC_ADDRESS_RE = re.compile(r"^[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}$")
 
 
 class MetricCard(QFrame):
@@ -268,7 +277,36 @@ class DevicesPage(QWidget):
 
         table_title = QLabel("Список устройств", table_panel)
         table_title.setObjectName("DevicesTableTitle")
-        table_layout.addWidget(table_title)
+        table_toolbar = QHBoxLayout()
+        table_toolbar.setContentsMargins(0, 0, 0, 0)
+        table_toolbar.setSpacing(8)
+        table_toolbar.addWidget(table_title)
+        table_toolbar.addStretch(1)
+
+        self._add_button = QPushButton("Добавить", table_panel)
+        self._add_button.setObjectName("DeviceActionButton")
+        self._edit_button = QPushButton("Изменить", table_panel)
+        self._edit_button.setObjectName("DeviceActionButton")
+        self._delete_button = QPushButton("Удалить", table_panel)
+        self._delete_button.setObjectName("DeviceDangerButton")
+        self._edit_button.setEnabled(False)
+        self._delete_button.setEnabled(False)
+
+        table_toolbar.addWidget(self._add_button)
+        table_toolbar.addWidget(self._edit_button)
+        table_toolbar.addWidget(self._delete_button)
+        table_layout.addLayout(table_toolbar)
+
+        self._empty_state_label = QLabel(table_panel)
+        self._empty_state_label.setObjectName("TableEmptyState")
+        self._empty_state_label.setWordWrap(True)
+        self._empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_state_label.setText(
+            "Устройства пока не добавлены.\n"
+            "Запустите demo mode или добавьте устройства вручную в следующем этапе."
+        )
+        self._empty_state_label.hide()
+        table_layout.addWidget(self._empty_state_label)
 
         self._table = QTableWidget(table_panel)
         self._table.setObjectName("DevicesTable")
@@ -283,6 +321,7 @@ class DevicesPage(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.setSortingEnabled(False)
         self._table.setMinimumHeight(290)
+        self._table.itemSelectionChanged.connect(self._sync_action_buttons)
 
         header_view = self._table.horizontalHeader()
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -310,6 +349,9 @@ class DevicesPage(QWidget):
 
     def set_rows(self, rows: list[DeviceTableRow]) -> None:
         """Заполнить таблицу устройств данными."""
+        has_rows = bool(rows)
+        self._table.setVisible(has_rows)
+        self._empty_state_label.setVisible(not has_rows)
         self._table.setRowCount(len(rows))
         for row_index, row in enumerate(rows):
             self._set_item(row_index, 0, str(row.device_id), Qt.AlignmentFlag.AlignCenter)
@@ -323,6 +365,41 @@ class DevicesPage(QWidget):
             elif row.risk_level == "Низкий":
                 risk_item.setForeground(Qt.GlobalColor.darkGreen)
             self._set_item(row_index, 6, self._format_updated_at(row.updated_at), Qt.AlignmentFlag.AlignCenter)
+        self._sync_action_buttons()
+
+    @property
+    def add_button(self) -> QPushButton:
+        """Кнопка добавления устройства."""
+        return self._add_button
+
+    @property
+    def edit_button(self) -> QPushButton:
+        """Кнопка редактирования устройства."""
+        return self._edit_button
+
+    @property
+    def delete_button(self) -> QPushButton:
+        """Кнопка удаления устройства."""
+        return self._delete_button
+
+    def selected_device_id(self) -> int | None:
+        """Вернуть id выбранного устройства."""
+        selected_items = self._table.selectedItems()
+        if not selected_items:
+            return None
+        row = selected_items[0].row()
+        id_item = self._table.item(row, 0)
+        if id_item is None:
+            return None
+        try:
+            return int(id_item.text())
+        except ValueError:
+            return None
+
+    def _sync_action_buttons(self) -> None:
+        has_selection = self.selected_device_id() is not None
+        self._edit_button.setEnabled(has_selection)
+        self._delete_button.setEnabled(has_selection)
 
     def _set_item(
         self,
@@ -474,6 +551,13 @@ class AlertsPage(QWidget):
         controls.addWidget(self._ack_button, 0, Qt.AlignmentFlag.AlignVCenter)
         table_layout.addWidget(controls_frame)
 
+        self._empty_state_label = QLabel(table_panel)
+        self._empty_state_label.setObjectName("TableEmptyState")
+        self._empty_state_label.setWordWrap(True)
+        self._empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_state_label.hide()
+        table_layout.addWidget(self._empty_state_label)
+
         self._table = QTableWidget(table_panel)
         self._table.setObjectName("AlertsTable")
         self._table.setColumnCount(7)
@@ -569,6 +653,9 @@ class AlertsPage(QWidget):
 
     def set_rows(self, rows: list[AlertTableRow]) -> None:
         """Заполнить таблицу оповещений."""
+        has_rows = bool(rows)
+        self._table.setVisible(has_rows)
+        self._empty_state_label.setVisible(not has_rows)
         checked_ids: set[int] = set()
         for row in range(self._table.rowCount()):
             checkbox = self._checkbox_for_row(row)
@@ -640,6 +727,10 @@ class AlertsPage(QWidget):
             self._table.blockSignals(False)
 
         self._sync_ack_button_state()
+
+    def set_empty_state_message(self, message: str) -> None:
+        """Обновить сообщение пустого состояния таблицы оповещений."""
+        self._empty_state_label.setText(message)
 
     def _checkbox_for_row(self, row: int) -> QCheckBox | None:
         widget = self._table.cellWidget(row, 0)
@@ -1179,6 +1270,15 @@ class MainWindow(QMainWindow):
                 color: #617988;
                 font-size: 12px;
             }
+            QLabel#TableEmptyState {
+                color: #4d6676;
+                font-size: 13px;
+                font-weight: 600;
+                background-color: #dde4eb;
+                border: 1px dashed #aebbc8;
+                border-radius: 10px;
+                padding: 20px 18px;
+            }
             QFrame#IntervalControlsRow {
                 max-width: 220px;
                 background: transparent;
@@ -1219,6 +1319,46 @@ class MainWindow(QMainWindow):
                 color: #38596c;
                 font-size: 14px;
                 font-weight: 700;
+            }
+            QPushButton#DeviceActionButton {
+                min-height: 34px;
+                border: none;
+                border-radius: 10px;
+                padding: 0 14px;
+                background-color: #2f5d78;
+                color: #f4f9ff;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton#DeviceActionButton:hover:!disabled {
+                background-color: #3d7290;
+            }
+            QPushButton#DeviceActionButton:pressed:!disabled {
+                background-color: #29566f;
+            }
+            QPushButton#DeviceActionButton:disabled {
+                background-color: #8f9eab;
+                color: #dbe3ea;
+            }
+            QPushButton#DeviceDangerButton {
+                min-height: 34px;
+                border: none;
+                border-radius: 10px;
+                padding: 0 14px;
+                background-color: #a74c53;
+                color: #fff5f5;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton#DeviceDangerButton:hover:!disabled {
+                background-color: #bb5d65;
+            }
+            QPushButton#DeviceDangerButton:pressed:!disabled {
+                background-color: #913f46;
+            }
+            QPushButton#DeviceDangerButton:disabled {
+                background-color: #9f9ea3;
+                color: #e4e3e7;
             }
             QTableWidget#DevicesTable {
                 background-color: #dce2e9;
@@ -1520,6 +1660,9 @@ class MainWindow(QMainWindow):
 
         self._nav_list.currentRowChanged.connect(self._on_navigation_changed)
         self._nav_list.setCurrentRow(0)
+        self._devices_page.add_button.clicked.connect(self._add_device)
+        self._devices_page.edit_button.clicked.connect(self._edit_selected_device)
+        self._devices_page.delete_button.clicked.connect(self._delete_selected_device)
         self._settings_page.interval_left_button.clicked.connect(self._decrease_interval)
         self._settings_page.interval_right_button.clicked.connect(self._increase_interval)
         self._settings_page.baseline_left_button.clicked.connect(self._decrease_baseline)
@@ -1565,12 +1708,34 @@ class MainWindow(QMainWindow):
     def _refresh_overview_metrics(self) -> None:
         """Обновить карточки обзора актуальными данными мониторинга."""
         metrics = self._monitoring_service.get_overview_metrics()
-        self._overview_page.set_metric_value("Текущая скорость", self._format_speed(metrics.total_speed_bps))
-        self._overview_page.set_metric_value("Активные устройства", str(metrics.active_devices))
-        self._overview_page.set_metric_value("Аномалии за сутки", str(metrics.alerts_last_24h))
+        has_samples = metrics.last_sample_at is not None
+        self._overview_page.set_metric_value(
+            "Текущая скорость",
+            self._format_speed(metrics.total_speed_bps),
+            "Суммарный входящий поток по всем устройствам."
+            if has_samples
+            else "Данные трафика еще не поступали. Для локальной проверки можно включить demo mode.",
+        )
+        self._overview_page.set_metric_value(
+            "Активные устройства",
+            str(metrics.active_devices),
+            "Устройства, от которых получены данные за последнюю минуту."
+            if has_samples
+            else "После появления первых замеров здесь появится активность по устройствам.",
+        )
+        self._overview_page.set_metric_value(
+            "Аномалии за сутки",
+            str(metrics.alerts_last_24h),
+            "События, превысившие baseline-порог в 2 раза."
+            if metrics.alerts_last_24h > 0
+            else "Новых аномалий пока нет. Это нормально для пустой или новой базы.",
+        )
         self._overview_page.set_metric_value(
             "Последнее обновление",
             self._format_last_updated(metrics.last_sample_at),
+            "Время завершения последнего цикла мониторинга."
+            if has_samples
+            else "Мониторинг запущен, но в базе еще нет замеров.",
         )
         if self._pages.currentIndex() == 1:
             self._refresh_devices_page()
@@ -1598,6 +1763,83 @@ class MainWindow(QMainWindow):
         self._devices_page.set_metric_value("В зоне риска", str(risk_devices))
         self._devices_page.set_metric_value("Новые за 7 дней", str(new_devices))
         self._devices_page.set_metric_value("Покрытие мониторинга", f"{coverage:.0f}%")
+        if total_devices == 0:
+            self._devices_page.set_metric_value(
+                "Всего устройств",
+                "0",
+                "Список пуст. В обычном режиме устройства больше не создаются автоматически.",
+            )
+            self._devices_page.set_metric_value(
+                "Покрытие мониторинга",
+                "0%",
+                "Покрытие появится после добавления устройств и получения первых замеров.",
+            )
+
+    def _add_device(self) -> None:
+        """Открыть диалог добавления устройства."""
+        dialog = DeviceDialog(parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            name, ip_value, mac_value = dialog.validated_values()
+            self._monitoring_service.create_device(name, ip_value, mac_value)
+        except ValueError as error:
+            QMessageBox.warning(self, "Некорректные данные", str(error))
+            return
+
+        self._refresh_devices_page()
+        self._refresh_overview_metrics()
+
+    def _edit_selected_device(self) -> None:
+        """Открыть диалог редактирования выбранного устройства."""
+        device_id = self._devices_page.selected_device_id()
+        if device_id is None:
+            return
+
+        device = next((item for item in self._monitoring_service.list_devices() if item.id == device_id), None)
+        if device is None:
+            QMessageBox.warning(self, "Устройство не найдено", "Не удалось загрузить выбранное устройство.")
+            return
+
+        dialog = DeviceDialog(device=device, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            name, ip_value, mac_value = dialog.validated_values()
+            self._monitoring_service.update_device(device_id, name, ip_value, mac_value)
+        except ValueError as error:
+            QMessageBox.warning(self, "Некорректные данные", str(error))
+            return
+
+        self._refresh_devices_page()
+        self._refresh_overview_metrics()
+
+    def _delete_selected_device(self) -> None:
+        """Удалить выбранное устройство после подтверждения."""
+        device_id = self._devices_page.selected_device_id()
+        if device_id is None:
+            return
+
+        device = next((item for item in self._monitoring_service.list_devices() if item.id == device_id), None)
+        if device is None:
+            QMessageBox.warning(self, "Устройство не найдено", "Не удалось загрузить выбранное устройство.")
+            return
+
+        result = QMessageBox.question(
+            self,
+            "Удалить устройство",
+            f"Удалить устройство '{device.name}'?\nСвязанные замеры и оповещения тоже будут удалены.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if result != QMessageBox.StandardButton.Yes:
+            return
+
+        self._monitoring_service.delete_device(device_id)
+        self._refresh_devices_page()
+        self._refresh_overview_metrics()
 
     def _on_navigation_changed(self, index: int) -> None:
         """Переключить страницу и точечно обновить данные активного раздела."""
@@ -1616,6 +1858,10 @@ class MainWindow(QMainWindow):
             only_unacknowledged=self._alerts_page.only_unacknowledged(),
             limit=400,
         )
+        if rows:
+            self._alerts_page.set_empty_state_message("")
+        else:
+            self._alerts_page.set_empty_state_message(self._build_alerts_empty_state_message())
         self._alerts_page.set_rows(rows)
 
     def _tick_alert_cards(self) -> None:
@@ -1650,6 +1896,38 @@ class MainWindow(QMainWindow):
             "Подтверждено",
             str(metrics.acknowledged_count),
             self._alert_caption("Оповещения, по которым завершена проверка.", last_times.acknowledged_last_at),
+        )
+
+    def _build_alerts_empty_state_message(self) -> str:
+        """Собрать сообщение пустого состояния для страницы оповещений."""
+        severity_filter = self._alerts_page.selected_severity_filter()
+        only_unack = self._alerts_page.only_unacknowledged()
+
+        if severity_filter is None and not only_unack:
+            return (
+                "Оповещений пока нет.\n"
+                "Это нормально для новой базы без demo-данных или без реальных событий мониторинга."
+            )
+        if severity_filter is None and only_unack:
+            return (
+                "Неподтвержденных оповещений сейчас нет.\n"
+                "Попробуйте снять фильтр или дождитесь новых событий."
+            )
+
+        severity_text = {
+            "high": "критичного",
+            "medium": "среднего",
+            "low": "низкого",
+        }.get(severity_filter, "выбранного")
+
+        if only_unack:
+            return (
+                f"Неподтвержденных оповещений {severity_text} уровня сейчас нет.\n"
+                "Попробуйте изменить фильтр или дождитесь новых событий."
+            )
+        return (
+            f"Оповещений {severity_text} уровня пока нет.\n"
+            "Попробуйте изменить фильтр или включить demo mode для проверки UI."
         )
 
     def _acknowledge_checked_alerts(self) -> None:
@@ -1761,18 +2039,19 @@ class MainWindow(QMainWindow):
     def _update_status_indicator(self) -> None:
         """Обновить текст состояния мониторинга."""
         if self._monitoring_enabled:
-            self._status_value_label.setProperty("active", "true")
+            self._status_value_label.setProperty("active", True)
             remaining_ms = self._overview_timer.remainingTime()
             if remaining_ms < 0:
                 remaining_ms = self._monitoring_service.get_interval_ms()
             self._status_value_label.setText(f"Активен • {self._format_remaining_time(remaining_ms)}")
             self._status_value_label.setToolTip("Таймер до следующего обновления мониторинга.")
         else:
-            self._status_value_label.setProperty("active", "false")
+            self._status_value_label.setProperty("active", False)
             self._status_value_label.setText("Неактивен")
             self._status_value_label.setToolTip("Мониторинг остановлен. Нажмите, чтобы запустить.")
         self._status_value_label.style().unpolish(self._status_value_label)
         self._status_value_label.style().polish(self._status_value_label)
+        self._status_value_label.update()
 
     def _alert_caption(self, base_text: str, last_at: datetime | None) -> str:
         """Сформировать подпись карточки с собственным временем последнего события."""
@@ -1863,3 +2142,66 @@ class MainWindow(QMainWindow):
         if minutes > 0:
             return f"{minutes} мин {seconds:02d} сек"
         return f"{seconds} сек"
+
+
+class DeviceDialog(QDialog):
+    """Диалог создания или редактирования устройства."""
+
+    def __init__(self, device: Device | None = None, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Добавить устройство" if device is None else "Изменить устройство")
+        self.setModal(True)
+        self.resize(420, 180)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(10)
+
+        self._name_input = QLineEdit(self)
+        self._ip_input = QLineEdit(self)
+        self._mac_input = QLineEdit(self)
+        self._name_input.setPlaceholderText("Например, WiFi Camera")
+        self._ip_input.setPlaceholderText("192.168.1.20")
+        self._mac_input.setPlaceholderText("AA:BB:CC:DD:EE:FF")
+
+        if device is not None:
+            self._name_input.setText(device.name)
+            self._ip_input.setText(device.ip_address)
+            self._mac_input.setText(device.mac_address or "")
+
+        form.addRow("Название", self._name_input)
+        form.addRow("IP-адрес", self._ip_input)
+        form.addRow("MAC-адрес", self._mac_input)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            Qt.Orientation.Horizontal,
+            self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+    def validated_values(self) -> tuple[str, str, str | None]:
+        """Вернуть провалидированные значения формы."""
+        name = self._name_input.text().strip()
+        ip_value = self._ip_input.text().strip()
+        mac_value = self._mac_input.text().strip() or None
+
+        if not name:
+            raise ValueError("Укажите название устройства.")
+        if not ip_value:
+            raise ValueError("Укажите IP-адрес устройства.")
+
+        try:
+            ip_address(ip_value)
+        except ValueError as error:
+            raise ValueError("IP-адрес указан в неверном формате.") from error
+
+        if mac_value is not None and not MAC_ADDRESS_RE.fullmatch(mac_value):
+            raise ValueError("MAC-адрес должен быть в формате AA:BB:CC:DD:EE:FF.")
+
+        return name, ip_value, mac_value.upper() if mac_value is not None else None

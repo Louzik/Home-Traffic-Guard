@@ -16,6 +16,7 @@ class AppConfig:
     log_path: Path
     monitoring_interval_ms: int = 15000
     baseline_multiplier: float = 2.0
+    demo_mode: bool = False
 
     @classmethod
     def default(cls) -> "AppConfig":

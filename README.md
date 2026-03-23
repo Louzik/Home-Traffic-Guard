@@ -14,6 +14,22 @@ If the package is not installed yet:
 PYTHONPATH=src python -m home_traffic_guard
 ```
 
+## Demo mode
+
+По умолчанию приложение больше не добавляет тестовые устройства и оповещения в базу.
+
+Для локальной проверки UI используйте demo mode:
+
+```bash
+PYTHONPATH=src python -m home_traffic_guard --demo
+```
+
+или через переменную окружения:
+
+```bash
+HTG_DEMO_MODE=1 PYTHONPATH=src python -m home_traffic_guard
+```
+
 ## Реальный сбор трафика
 
 Приложение использует захват пакетов (`scapy`) для реального сбора трафика по устройствам.
